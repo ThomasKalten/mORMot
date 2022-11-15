@@ -110,10 +110,12 @@ uses
   dl,
   {$else}
   DynLibs,
-  {$endif}
-  {$endif}
-  {$endif}
-  {$endif}
+  {$endif BSDNOTDARWIN}
+  {$endif Linux}
+  {$else}
+   SynDelphiPosix,
+  {$endif FPC}
+  {$endif MSWINDOWS}
   SysUtils,
   Classes,
   {$ifndef LVCL}
@@ -3265,6 +3267,11 @@ var
 
 
 implementation
+{$ifndef FPC}
+  {$ifdef POSIX}
+  uses Posix.Unistd, System.SyncObjs, Posix.Stdio; // Inline expand
+  {$endif}
+{$endif}
 
 { ************ direct access to sqlite3.c / sqlite3.obj consts and functions }
 
@@ -3369,6 +3376,11 @@ end;
 
 function Utf16SQLCompCase(CollateParam: pointer; s1Len: integer; S1: pointer;
     s2Len: integer; S2: pointer) : integer; cdecl;
+{$ifndef FPC}
+{$ifndef MSWINDOWS}
+var maxLen: Integer;
+{$endif MSWINDOWS}
+{$endif FPC}
 begin
   if s1Len<=0 then
     if s2Len<=0 then
@@ -3376,12 +3388,37 @@ begin
       result := -1 else
     if s2Len<=0 then
       result := 1 else
+      {$ifdef FPC}
       result := CompareStringW(
         LOCALE_USER_DEFAULT,0,S1,s1len shr 1,S2,s2Len shr 1)-2;
+      {$else}
+        {$ifdef MSWINDOWS}
+        result := CompareStringW(
+          LOCALE_USER_DEFAULT,0,S1,s1len shr 1,S2,s2Len shr 1)-2;
+        {$else}
+        begin
+        maxLen:= s1Len;
+        if s2Len < maxLen then
+           maxLen:= s2Len;
+        result:= AnsiStrLComp(PWideChar(s1), PWideChar(s2), maxLen);
+        if Result = 0 then
+           if s1Len < s2Len then
+              Result:= -1
+           else
+              if s1Len > s2Len then
+                 Result:= 1;
+        end;
+        {$endif MSWINDOWS}
+      {$endif}
 end;
 
 function Utf16SQLCompNoCase(CollateParam: pointer; s1Len: integer; s1: pointer;
     s2Len: integer; s2: pointer) : integer; cdecl;
+{$ifndef FPC}
+{$ifndef MSWINDOWS}
+var maxLen: Integer;
+{$endif MSWINDOWS}
+{$endif FPC}
 begin
   if s1Len<=0 then
     if s2Len<=0 then
@@ -3389,8 +3426,28 @@ begin
       result := -1 else
   if s2Len<=0 then
     result := 1 else
-    result := CompareStringW(
-      LOCALE_USER_DEFAULT,NORM_IGNORECASE,S1,s1len shr 1,S2,s2Len shr 1)-2;
+      {$ifdef FPC}
+      result := CompareStringW(
+        LOCALE_USER_DEFAULT,NORM_IGNORECASE,S1,s1len shr 1,S2,s2Len shr 1)-2; // - CSTR_EQUAL
+      {$else}
+        {$ifdef MSWINDOWS}
+        result := CompareStringW(
+          LOCALE_USER_DEFAULT,NORM_IGNORECASE,S1,s1len shr 1,S2,s2Len shr 1)-2; // - CSTR_EQUAL
+        {$else}
+        begin
+        maxLen:= s1Len;
+        if s2Len < maxLen then
+           maxLen:= s2Len;
+        result:= AnsiStrLIComp(PWideChar(s1), PWideChar(s2), maxLen);
+        if Result = 0 then
+           if s1Len < s2Len then
+              Result:= -1
+           else
+              if s1Len > s2Len then
+                 Result:= 1;
+        end;
+        {$endif MSWINDOWS}
+      {$endif}
 end;
 
 function Utf8SQLCompNoCase(CollateParam: pointer; s1Len: integer; s1: pointer;

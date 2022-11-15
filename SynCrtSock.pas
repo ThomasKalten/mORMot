@@ -80,6 +80,20 @@ uses
 {$ifdef USELIBCURL}
   SynCurl,
 {$endif USELIBCURL}
+{$ifdef USESYSTEMSOCKET}
+  {$ifdef POSIX}
+  //Compare also IdStackVCLPosix in current DelphiXE,
+  Posix.SysSocket,
+  Posix.SysSelect,
+  SynDelphiPosixSock, //Important: this unit after the Posix-Units!  Todo: Android Version of Get IPLIst
+  {$endif POSIX}
+{$endif USESYSTEMSOCKET}
+{$ifndef FPC}
+  {$ifdef POSIX}
+  SynDelphiPosix,
+  {$endif POSIX}
+{$endif FPC}
+
 {$ifdef FPC}
   dynlibs,
 {$endif FPC}
@@ -2920,6 +2934,17 @@ function PollSocketClass: TPollSocketClass;
 
 type
   {$ifdef MSWINDOWS}
+     {$define WITHTPOLLSOCKETSELECT}
+     {$undef HAS_POLLAPI}
+  {$else}
+     {$define HAS_POLLAPI}
+  {$endif MSWINDOWS}
+  {$ifdef USESYSTEMSOCKET}
+     {$define WITHTPOLLSOCKETSELECT}
+     {$undef HAS_POLLAPI}
+  {$endif USESYSTEMSOCKET}
+
+  {$ifdef WITHTPOLLSOCKETSELECT}
   /// socket polling via Windows' Select() API
   // - under Windows, Select() handles up to 64 TSocket, and is available
   // in Windows XP, whereas WSAPoll() is available only since Vista
@@ -2955,8 +2980,9 @@ type
     function WaitForModified(out results: TPollSocketResults;
       timeoutMS: integer): integer; override;
   end;
-  {$endif MSWINDOWS}
+  {$endif WITHTPOLLSOCKETSELECT}
 
+  {$ifndef USESYSTEMSOCKET}
   /// socket polling via poll/WSAPoll API
   // - direct call of the Linux/POSIX poll() API, or Windows WSAPoll() API
   TPollSocketPoll = class(TPollSocketAbstract)
@@ -3022,6 +3048,7 @@ type
     property EPFD: integer read fEPFD;
   end;
   {$endif LINUXNOTBSD}
+  {$endif USESYSTEMSOCKET}
 
 type
   {$M+}
@@ -3245,7 +3272,6 @@ var
   // - for Unix default is taken from SynFPCSock (128 as in linux kernel >2.2),
   // but actual value is min(DefaultListenBacklog, /proc/sys/net/core/somaxconn)
   DefaultListenBacklog: integer = SOMAXCONN;
-
 
 implementation
 
@@ -4317,6 +4343,19 @@ end;
 
 {$else MSWINDOWS}
 
+{$ifdef ISDELPHIXE}
+// dummy implementation - API not exposed to system units - may be in newer versions
+function GetFileOpenLimit(hard: boolean=false): integer;
+begin
+  result:= -1;
+end;
+
+function SetFileOpenLimit(max: integer; hard: boolean=false): integer;
+begin
+  result:= -1;
+end;
+
+{$else}
 function GetFileOpenLimit(hard: boolean=false): integer;
 var limit: TRLIMIT;
 begin
@@ -4356,8 +4395,11 @@ begin
   {$endif}
     result := GetFileOpenLimit(hard);
 end;
+{$endif ISDELPHIXE}
 
-{$define USE_IFADDRS}
+{$ifndef ISDELPHIXE}
+  {$define USE_IFADDRS}
+{$endif ISDELPHIXE}
 
 {$ifdef USE_IFADDRS}
 type
@@ -4721,12 +4763,12 @@ begin
     if SetSockOpt(Sock,SOL_SOCKET,OptName,@timeval,sizeof(timeval))=0 then
     {$else}
     // WinAPI expects the time out directly as ms integer
-    if SetSockOpt(Sock,SOL_SOCKET,OptName,pointer(@OptVal),sizeof(OptVal))=0 then
+    if SetSockOpt(Sock,SOL_SOCKET,OptName,@OptVal,sizeof(OptVal))=0 then
     {$endif}
       exit;
   end;
   SO_KEEPALIVE: // boolean (0/1) value
-    if SetSockOpt(Sock,SOL_SOCKET,OptName,pointer(@OptVal),sizeof(OptVal))=0 then
+    if SetSockOpt(Sock,SOL_SOCKET,OptName,@OptVal,sizeof(OptVal))=0 then
       exit;
   SO_LINGER: begin // not available on UDP
     if OptVal<0 then
@@ -4884,8 +4926,13 @@ begin
     Size := RecvFrom(Sock.Sock, F.BufPtr, Size, 0, @Sock.fPeerAddr, @iSize);
     {$else}
     Size := RecvFrom(Sock.Sock, F.BufPtr, Size, 0, sin);
+    {$ifdef FPC}
     Sock.fPeerAddr.sin_port := sin.sin_port;
     Sock.fPeerAddr.sin_addr := sin.sin_addr;
+    {$else}
+    move(sin.sin_port, Sock.fPeerAddr.sa_data[0], SizeOf(sin.sin_port));
+    move(sin.sin_addr, Sock.fPeerAddr.sa_data[SizeOf(sin.sin_port)], SizeOf(sin.sin_addr));
+    {$endif FPC}
     {$endif}
   end else // cslTCP/cslUNIX
     if not Sock.TrySockRecv(F.BufPtr,Size,{StopBeforeLength=}true) then
@@ -5289,7 +5336,9 @@ end;
 
 function TCrtSocket.SockInPending(aTimeOutMS: integer; aPendingAlsoInSocket: boolean): integer;
 var backup: PtrInt;
+    {$ifdef MSWINDOWS}
     insocket: integer;
+    {$ENDIF}
 begin
   if SockIn=nil then
     raise ECrtSocket.Create('SockInPending without SockIn');
@@ -5488,7 +5537,7 @@ end;
 
 function TCrtSocket.SockReceivePending(TimeOutMS: integer): TCrtSocketPending;
 var res: integer;
-    {$ifdef MSWINDOWS}
+    {$ifndef HAS_POLLAPI}
     tv: TTimeVal;
     fdset: TFDSet;
     pending: integer;
@@ -5506,17 +5555,26 @@ begin
     result := cspSocketError;
     exit;
   end;
-  {$ifdef MSWINDOWS}
+  {$ifndef HAS_POLLAPI}
     {$ifdef SYNCRTDEBUGLOW} time.Start; {$endif}
+    {$ifdef MSWINDOWS}
     fdset.fd_array[0] := fSock;
     fdset.fd_count := 1;
+    {$else}
+    _FD_SET(fSock, fdset);
+    {$endif MSWINDOWS}
     tv.tv_sec := TimeOutMS div 1000;
     tv.tv_usec := (TimeOutMS mod 1000)*1000;
     pending := -1;
     res := Select(fSock+1,@fdset,nil,nil,@tv);
     if res<0 then
       result := cspSocketError else
-    if (res=0) or (fdset.fd_count<>1) or (fdset.fd_array[0]<>fSock) then
+    if (res=0)
+       {$ifdef MSWINDOWS}
+       or (fdset.fd_count<>1) or (fdset.fd_array[0]<>fSock)
+       {$else}
+       or not FD_ISSET(fsock, fdset)
+       {$endif} then
       result := cspNoData else
       if IoctlSocket(fSock,FIONREAD,pending)=0 then
         if pending>0 then
@@ -5547,7 +5605,7 @@ begin
   if p.revents=POLLIN then
     result := cspDataAvailable else
     result := cspNoData;
-  {$endif}
+  {$endif HAS_POLLAPI}
 end;
 
 function TCrtSocket.LastLowSocketError: Integer;
@@ -5640,7 +5698,11 @@ end;
 
 function TCrtSocket.PeerPort: integer;
 begin
+  {$ifdef ISDELPHIXE}
+  result := PVarSin(@fPeerAddr)^.sin_port;
+  {$else}
   result := fPeerAddr.sin_port;
+  {$endif}
 end;
 
 function TCrtSocket.SockReceiveString: SockString;
@@ -7238,7 +7300,11 @@ begin
   {$ifdef KYLIX3}
   result := LibC.Recv(sock,buf^,buflen,0);
   {$else}
+  {$ifdef FPC}
   result := fpRecv(sock,buf,buflen,0);
+  {$else}
+  result := Recv(sock,buf,buflen,0);
+  {$endif FPC}
   {$endif KYLIX3}
   {$endif MSWINDOWS}
 end;
@@ -7251,7 +7317,11 @@ begin
   {$ifdef KYLIX3}
   result := LibC.Send(sock,buf^,buflen,MSG_NOSIGNAL);
   {$else}
+  {$ifdef FPC}
   result := fpSend(sock,buf,buflen,MSG_NOSIGNAL);
+  {$else}
+  result := Send(sock,buf,buflen,MSG_NOSIGNAL);
+  {$endif FPC}
   {$endif}
   {$endif}
 end;
@@ -12181,12 +12251,16 @@ begin
 {$ifdef LINUXNOTBSD}
   result := TPollSocketEpoll; // the preferred way for our purpose
 {$else}
-  {$ifdef MSWINDOWS}
-  {$ifdef USEWSAPOLL}
-  if Win32MajorVersion>=6 then // WSAPoll() not available before Vista
-    result := TPollSocketPoll else
-  {$endif USEWSAPOLL}
-    result := TPollSocketSelect; // Select() is FASTER than WSAPoll() :(
+  {$ifdef WITHTPOLLSOCKETSELECT}
+    {$ifdef MSWINDOWS}
+    {$ifdef USEWSAPOLL}
+    if Win32MajorVersion>=6 then // WSAPoll() not available before Vista
+      result := TPollSocketPoll else
+    {$endif USEWSAPOLL}
+      result := TPollSocketSelect; // Select() is FASTER than WSAPoll() :(
+    {$else}
+    result := TPollSocketSelect; // Default with Delphi-System-Net
+    {$endif MSWINDOWS}
   {$else}
   result := TPollSocketPoll; // available on all POSIX systems
   {$endif MSWINDOWS}
@@ -12204,7 +12278,7 @@ begin
 end;
 
 
-{$ifdef MSWINDOWS}
+{$ifdef WITHTPOLLSOCKETSELECT}
 
 { TPollSocketSelect }
 
@@ -12221,9 +12295,17 @@ begin
   if (self=nil) or (socket=0) or (byte(events)=0) or (fCount=fMaxSockets) then
     exit;
   if pseRead in events then
-    FD_SET(socket, fRead);
+     {$ifdef MSWINDOWS}
+     FD_SET(socket, fRead);
+     {$else}
+     _FD_SET(socket, fRead);
+     {$endif}
   if pseWrite in events then
-    FD_SET(socket, fWrite);
+     {$ifdef MSWINDOWS}
+     FD_SET(socket, fWrite);
+     {$else}
+     _FD_SET(socket, fWrite);
+     {$endif}
   fTag[fCount].socket := socket;
   fTag[fCount].tag := tag;
   inc(fCount);
@@ -12263,6 +12345,7 @@ begin
   result := -1; // error
   if (self=nil) or (fCount=0) then
     exit;
+  {$ifdef MSWINDOWS}
   if fRead.fd_count>0 then begin
     rd := fRead;
     rdp := @rd;
@@ -12273,6 +12356,12 @@ begin
     wrp := @wr;
   end else
     wrp := nil;
+  {$else} // no count property
+    rd := fRead;
+    rdp := @rd;
+    wr := fWrite;
+    wrp := @wr;
+  {$endif MSWINDOWS}
   tv.tv_sec := timeoutMS div 1000;
   tv.tv_usec := (timeoutMS mod 1000)*1000;
   result := Select(fHighestSocket+1,rdp,wrp,nil,@tv);
@@ -12299,10 +12388,9 @@ begin
   SetLength(results,result);
   move(tmp,results[0],result*sizeof(tmp[0]));
 end;
+{$endif WITHTPOLLSOCKETSELECT}
 
-{$endif MSWINDOWS}
-
-
+{$ifndef USESYSTEMSOCKET}
 { TPollSocketPoll }
 
 constructor TPollSocketPoll.Create;
@@ -12511,7 +12599,7 @@ begin
 end;
 
 {$endif LINUXNOTBSD}
-
+{$endif USESYSTEMSOCKET}
 
 { TPollSockets }
 

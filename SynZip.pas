@@ -113,7 +113,7 @@ unit SynZip;
        {$define USEEXTZLIB}
     {$endif}
   {$endif}
-{$else}
+{$else} // Delphi
   {$undef USEZLIBSSE}  // Delphi linker is buggy as hell
   {$ifndef USEEXTZLIB} // define USEEXTZLIB for the project for better performance
     {$ifdef MSWINDOWS}
@@ -127,7 +127,8 @@ unit SynZip;
         {.$define USEEXTZLIB}  // use faster zlib-64.dll as in \fpc-win64 sub-folder
       {$endif}
     {$else}
-      {$define USEEXTZLIB} // e.g. for Kylix
+       {$undef USEEXTZLIB} // Use System.ZLIb!
+       {$define USEDELPHIZLIB}
     {$endif}
   {$endif USEEXTZLIB}
 {$endif}
@@ -141,7 +142,7 @@ uses
   Windows,
 {$else}
   {$ifdef KYLIX3}
-  LibC,
+//  LibC,
   {$else}
   {$ifndef ANDROID}
   clocale,
@@ -790,8 +791,13 @@ implementation
 
 {$ifdef USEDELPHIZLIB}
 uses
+  {$IFDEF POSIX}
+  SynDelphiPosix,
+  Posix.Stdio, Posix.SysMman,
+  Posix.Unistd, // Inline expand
+  {$ENDIF}
   ZLib;
-{$endif USEDELPHIZLIB}
+{$ELSE}
 {$ifdef Linux}
 uses
   {$ifdef FPC}
@@ -801,6 +807,8 @@ uses
   SynKylix;
   {$endif}
 {$endif Linux}
+{$endif USEDELPHIZLIB}
+
 
 {$ifdef DELPHI5OROLDER}
 function IncludeTrailingPathDelimiter(const FileName: TFileName): TFileName;
@@ -997,7 +1005,13 @@ end;
 
 function TZipWrite.InternalWritePosition: cardinal;
 begin
-  result := SetFilePointer(Handle,0,nil,{$ifdef Linux}SEEK_CUR{$else}FILE_CURRENT{$endif});
+  result := SetFilePointer(Handle,0,nil,
+                          {$ifdef FPC}
+                          {$ifdef Linux}SEEK_CUR{$else}FILE_CURRENT{$endif}
+                          {$else}
+                          {$ifdef POSIX}SEEK_CUR{$else}FILE_CURRENT{$endif}
+                          {$endif}
+                          );
 end;
 
 procedure TZipWrite.InternalWrite(const buf; len: cardinal);
@@ -1182,7 +1196,7 @@ begin
   end;
   {$else}
   if (mapSize<>0) and (buf<>nil) then begin
-    {$ifdef KYLIX3}munmap{$else}fpmunmap{$endif}(buf,mapSize);
+    {$ifdef KYLIX3} munmap {$else}{$ifdef ISDELPHIXE} munmap {$else} fpmunmap {$endif}{$endif}(buf,mapSize);
     mapSize := 0;
   end;
   {$endif MSWINDOWS}
@@ -1305,7 +1319,7 @@ begin
   buf := MapViewOfFile(map, FILE_MAP_READ, 0, 0, 0);
   {$else}
   mapSize := Size;
-  buf := {$ifdef KYLIX3}mmap{$else}fpmmap{$endif}(nil,Size,PROT_READ,MAP_SHARED,aFile,0);
+  buf := {$ifdef KYLIX3} mmap {$else}{$ifdef ISDELPHIXE} mmap {$else} fpmmap {$endif}{$endif}(nil,Size,PROT_READ,MAP_SHARED,aFile,0);
   if buf=MAP_FAILED then
     buf := nil;
   {$endif}

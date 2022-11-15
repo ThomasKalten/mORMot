@@ -452,8 +452,9 @@
     {$define UNDIRECTDYNARRAY}
   {$endif UNICODE}
 
+
   {$ifndef PUREPASCAL}
-    {$define CPUINTEL} // Delphi only for Intel by now
+    {.$define CPUINTEL} // Delphi only for Intel - not true any more
   {$endif}
   {$ifdef CPUX64}
     {$define CPU64} // Delphi compiler for 64 bit CPU
@@ -463,12 +464,16 @@
     {$define EXTENDEDTOSHORT_USESTR} // FloatToText() much slower in x64 mode
     {$define DOUBLETOSHORT_USEGRISU} // fast double to text
   {$else CPUX64}
-    {$define CPU32} // Delphi compiler for 32 bit CPU
-    {$define CPU32DELPHI}
-    {$undef CPU64}
-    {$define CPUX86} // for compatibility with older versions of Delphi
-    {$define CPUX86NOTPIC} // use "absolute" instead of local register
-    {$define TSYNEXTENDED80} // only 32-bit has a true x87 extended type
+    {$IFDEF CPUX86}
+      {$define CPU32} // Delphi compiler for 32 bit CPU
+      {$define CPU32DELPHI}
+      {$undef CPU64}
+      {$define CPUX86} // for compatibility with older versions of Delphi
+      {$define CPUX86NOTPIC} // use "absolute" instead of local register
+      {$define TSYNEXTENDED80} // only 32-bit has a true x87 extended type
+    {$ELSE}
+      {$define PUREPASCAL}
+    {$ENDIF}
   {$endif CPUX64}
 
   {$IFDEF CONDITIONALEXPRESSIONS}  // Delphi 6 or newer
@@ -476,6 +481,7 @@
     {$ifdef LINUX}
       {$if RTLVersion = 14.5}
         {$define KYLIX3}
+        {$define DELPHI_POSIX}
         {$define FPC_OR_KYLIX}
         // Kylix 3 will be handled just like Delphi 7
         {$undef ENHANCEDRTL}   // Enhanced Runtime library not fully tested yet
@@ -485,9 +491,22 @@
         {$define NOSQLITE3STATIC} // Kylix will use external sqlite3.so
         {$define LINUXNOTBSD}     // e.g. to disable epoll API
       {$else}
-      Kylix1/2 or Delphi Tokyo/ARC are unsupported
+        {$if  RTLVersion >= 29} // XE8
+          {$define DELPHI_POSIX}
+        {$else}
+        Kylix1/2 or Delphi Tokyo/ARC are unsupported
+        {$ifend}
       {$ifend}
     {$else}
+      {$ifdef ANDROID}
+        {$define DELPHI_POSIX}
+      {$endif}
+      {$ifdef IOS}
+        {$define DELPHI_POSIX}
+      {$endif}
+      {$ifdef OSX}
+        {$define DELPHI_POSIX}
+      {$endif}
       {$ifdef VER140}
         {$define ISDELPHI6ANDUP} // Delphi 6 or newer
         {$define DELPHI6OROLDER}
@@ -721,12 +740,18 @@
 {$else}
   {$define ONLYUSEHTTPSOCKET}  // http.sys server is Windows-specific
   // cross-platform libcurl for https -> TCurlHttp and TSQLHttpClientCurl
-  {$define USELIBCURL}
-  {$ifdef ANDROID}
-    // for Android, consider using https://github.com/gcesarmza/curl-android-ios
-    // static libraries and force USELIBCURL in the project conditionals
-    {$define LIBCURLSTATIC}
-  {$endif ANDROID}
+  {$ifdef FPC}
+    {$define USELIBCURL}
+    {$ifdef ANDROID}
+      // for Android, consider using https://github.com/gcesarmza/curl-android-ios
+      // static libraries and force USELIBCURL in the project conditionals
+      {$define LIBCURLSTATIC}
+    {$endif ANDROID}
+  {$else}
+    {$define USESYSTEMSOCKET}
+    {$undef USELIBCURL}
+    {$undef USEWININET}
+  {$endif}
 {$endif MSWINDOWS}
 
 {$ifdef USELIBCURL}
@@ -734,3 +759,14 @@
   // enable https://curl.haxx.se/libcurl/c/libcurl-multi.html interface
 {$endif USELIBCURL}
 
+{$DEFINE HAVERTLCriticalSection}
+{$DEFINE HAVE_TSystemTime}
+{$IFDEF ISDELPHIXE}
+  {$IFNDEF MSWINDOWS}
+    {$undef HAVERTLCriticalSection}
+    {$undef HAVE_TSystemTime}
+    {$define NOEXCEPTIONINTERCEPT}
+  {$ENDIF}
+{$ENDIF}
+
+{$LEGACYIFEND OFF}

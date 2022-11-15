@@ -83,8 +83,11 @@ uses
     LibC,
     SynKylix,
   {$endif KYLIX3}
+
   {$ifdef FPC}
     BaseUnix,
+  {$else}
+    Posix.SysUtsname,
   {$endif FPC}
 {$endif MSWINDOWS}
   Classes,
@@ -4129,10 +4132,10 @@ const
 {$endif}
 
 /// convert a char set to a code page
-function CharSetToCodePage(CharSet: integer): cardinal;
+//function CharSetToCodePage(CharSet: integer): cardinal;
 
 /// convert a code page to a char set
-function CodePageToCharSet(CodePage: Cardinal): Integer;
+//function CodePageToCharSet(CodePage: Cardinal): Integer;
 
 /// retrieve the MIME content type from a supplied binary buffer
 // - inspect the first bytes, to guess from standard known headers
@@ -6451,6 +6454,10 @@ type
     /// finalize the store items
     destructor Destroy; override;
   end;
+
+  {$IFNDEF HAVERTLCriticalSection}
+  TRTLCriticalSection = TCriticalSection;
+  {$ENDIF}
 
   /// allow to add cross-platform locking methods to any class instance
   // - typical use is to define a Safe: TSynLocker property, call Safe.Init
@@ -12558,6 +12565,11 @@ type
     procedure IncrementMS(ms: integer);
   end;
   PSynSystemTime = ^TSynSystemTime;
+
+  {$IFNDEF HAVE_TSystemType}
+  TSystemTime = TSynSystemTime;
+  {$ENDIF}
+
   {$A+}
 
   /// fast bit-encoded date and time value
@@ -16976,6 +16988,16 @@ uses
   SynFPCLinux,
   {$endif LINUX}
   SynFPCTypInfo; // small wrapper unit around FPC's TypInfo.pp
+{$else}
+  {$IFDEF POSIX}
+  uses Posix.SysStat, Posix.SysTime,
+       Posix.SysMMan, Posix.Unistd,
+       SynDelphiPosix
+     {$IFDEF ISDELPHIXE}
+     , System.DateUtils
+     {$ENDIF}
+     ;
+  {$ENDIF}
 {$endif FPC}
 
 
@@ -17111,8 +17133,15 @@ end;
 
 
 { TSynAnsiConvert }
-
 {$ifdef MSWINDOWS}
+  {$define NEED_DEFAULTVARCHAR}
+{$else}
+{$ifdef ISDELPHIXE}
+  {$define NEED_DEFAULTVARCHAR}
+{$endif}
+{$endif}
+
+{$ifdef NEED_DEFAULTVARCHAR}
 const
   DefaultCharVar: AnsiChar = '?';
 {$endif}
@@ -17161,7 +17190,7 @@ begin
     {$else}
     {$ifdef ISDELPHIXE} // use cross-platform wrapper for MultiByteToWideChar()
     result := Dest+UnicodeFromLocaleChars(
-      fCodePage,MB_PRECOMPOSED,Source,SourceChars,Dest,SourceChars);
+      fCodePage,0,Source,SourceChars,Dest,SourceChars);
     {$else}
     {$ifdef FPC}
     // uses our SynFPCLinux ICU API helper
@@ -19228,7 +19257,7 @@ begin
     {$ifndef CPUX86NOTPIC}tab := @TwoDigitLookupW;{$endif}
     c := val;
     repeat
-      {$ifdef PUREPASCAL}
+      {$if defined(PUREPASCAL) or not defined(CPUINTEL)}
       c100 := c div 100;   // one div by two digits
       dec(c,c100*100);     // fast c := c mod 100
       {$else}
@@ -20234,7 +20263,7 @@ end;
 {$endif}
 
 procedure Exchg(P1,P2: PAnsiChar; count: PtrInt);
-  {$ifdef PUREPASCAL} {$ifdef HASINLINE}inline;{$endif}
+  {$if defined(PUREPASCAL) or not defined(CPUINTEL)} {$ifdef HASINLINE}inline;{$endif}
 var i, c: PtrInt;
     u: AnsiChar;
 begin
@@ -23959,7 +23988,7 @@ begin
 end;
 
 procedure Div100(Y: cardinal; var res: TDiv100Rec);
-{$ifdef FPC}
+{$if defined(FPC) or defined(PUREPASCAL)}
 var Y100: cardinal;
 begin
   Y100 := Y div 100; // FPC will use fast reciprocal
@@ -27501,7 +27530,11 @@ begin
   {$ifdef KYLIX3}
   uname(SystemInfo.uts);
   {$else}
+  {$ifdef DELPHI_POSIX}
+  uname(SystemInfo.uts);
+  {$else}
   fpuname(SystemInfo.uts);
+  {$endif DELPHI_POSIX}
   {$endif KYLIX3}
   prod := Trim(StringFromFile('/sys/class/dmi/id/product_name',true));
   if prod<>'' then begin
@@ -27628,6 +27661,13 @@ begin
 end;
 {$endif FPC}
 
+{$ifdef ISDELPHIXE}
+function GetTickCount64: Int64;
+begin
+  result := SynDelphiPosix.GetTickCount64;
+end;
+{$endif}
+
 {$endif MSWINDOWS}
 
 function FileOpenSequentialRead(const FileName: string): Integer;
@@ -27640,7 +27680,11 @@ begin
     result := FileOpen(FileName,fmOpenRead or fmShareDenyNone);
   {$else}
     // SysUtils.FileOpen = fpOpen + fpFlock - assuming FileName is UTF-8
+    {$IFDEF DELPHI_POSIX}
+    result := FileOpen(FileName, fmOpenRead or fmShareDenyNone);
+    {$ELSE}
     result := fpOpen(pointer(FileName), O_RDONLY);
+    {$ENDIF}
   {$endif MSWINDOWS}
 end;
 
@@ -28222,10 +28266,17 @@ begin
     until (PW-Start>=UpperLen) or
       (w=0) or ((w<126) and (not(tcWord in TEXT_BYTES[w])));
     if PW-Start>=UpperLen then
+      {$IFDEF MSWINDOWS}
       if CompareStringW(LOCALE_USER_DEFAULT,NORM_IGNORECASE,Start,UpperLen,Upper,UpperLen)=2 then begin
         result := true; // match found
         exit;
       end;
+      {$ELSE} // Optimization of pointer needs more system calls - may it is more useful to use the Runtime functions for the whole functionality
+      if AnsiSameText(WideCharLenToString(Start, UpperLen), WideCharLenToString(Upper, UpperLen) ) then begin
+        result := true; // match found
+        exit;
+      end;
+      {$ENDIF}
     // not found: go to end of current word
     repeat
       w := ord(PW^);
@@ -29234,7 +29285,14 @@ begin
   Dest.Add(');'#13#10'  %_LEN = SizeOf(%);'#13#10,[ConstName,ConstName]);
 end;
 
-{$ifdef KYLIX3}
+// Prevent "IF DEFINED"
+{$ifdef DELPHI_POSIX}
+  {$DEFINE USE_DelphiWideString}
+{$endif}  
+{$ifdef DELPHI_POSIX}
+  {$DEFINE USE_DelphiWideString}
+{$endif}  
+{$ifdef USE_DelphiWideString}
 function UpperCaseUnicode(const S: RawUTF8): RawUTF8;
 begin
   result := WideStringToUTF8(WideUpperCase(UTF8ToWideString(S)));
@@ -30877,7 +30935,7 @@ var
  {$ifdef MSWINDOWS}
  lp: TByHandleFileInformation;
  {$else}
- lp: {$ifdef FPC}stat{$else}TStatBuf64{$endif};
+ lp: {$ifdef FPC}stat{$else} {$ifdef POSIX} _stat {$else} TStatBuf64{$endif}{$endif};
  r: integer;
  {$endif MSWINDOWS}
 begin
@@ -30893,7 +30951,7 @@ begin
   PInt64Rec(@FileId).lo := lp.nFileIndexLow;
   PInt64Rec(@FileId).hi := lp.nFileIndexHigh;
 {$else}
-  r := {$ifdef FPC}FpFStat{$else}fstat64{$endif}(aFileHandle, lp);
+  r := {$ifdef FPC}FpFStat{$else}{$ifdef POSIX} fstat {$else} fstat64{$endif}{$endif}(aFileHandle, lp);
   result := r >= 0;
   if not result then
     exit;
@@ -37473,20 +37531,41 @@ begin
   result := FileTimeToUnixMSTime(ft);
 end;
 {$else MSWINDOWS}
-function UnixTimeUTC: TUnixTime;
-begin
-  result := GetUnixUTC; // direct retrieval from UNIX API
-end;
+  {$ifdef ISDELPHIXE}
+  function UnixTimeUTC: TUnixTime;
+  var TV: timeval;
+  begin
+    gettimeofday(TV, nil);
+    Result:= TV.tv_sec;
+  end;
 
-function UnixMSTimeUTC: TUnixMSTime;
-begin
-  result := GetUnixMSUTC; // direct retrieval from UNIX API
-end;
+  function UnixMSTimeUTC: TUnixMSTime;
+  var TV: timeval;
+  begin
+    gettimeofday(TV, nil);
+    Result:= (TV.tv_sec * 1000) + TV.tv_usec div 1000;
+  end;
 
-function UnixMSTimeUTCFast: TUnixMSTime;
-begin
-  result := GetUnixMSUTC; // direct retrieval from UNIX API
-end;
+  function UnixMSTimeUTCFast: TUnixMSTime;
+  begin
+    result:= UnixMSTimeUTC; // direct retrieval from UNIX API
+  end;
+  {$else}
+  function UnixTimeUTC: TUnixTime;
+  begin
+    result := GetUnixUTC; // direct retrieval from UNIX API
+  end;
+
+  function UnixMSTimeUTC: TUnixMSTime;
+  begin
+    result := GetUnixMSUTC; // direct retrieval from UNIX API
+  end;
+
+  function UnixMSTimeUTCFast: TUnixMSTime;
+  begin
+    result := GetUnixMSUTC; // direct retrieval from UNIX API
+  end;
+  {$endif ISDELPHIXE}
 {$endif MSWINDOWS}
 
 function DaysToIso8601(Days: cardinal; Expanded: boolean): RawUTF8;
@@ -38212,6 +38291,9 @@ var // GlobalTime[LocalTime] cache protected using RCU128()
     clock: PtrInt; // avoid slower API call with 8-16ms loss of precision
   end;
 
+{$ifdef FPC}
+  {$define HAS_READBARRIER}
+{$endif}
 {$ifndef FPC}{$ifdef CPUINTEL} // intrinsic in FPC
 procedure ReadBarrier;
 asm
@@ -38221,8 +38303,13 @@ asm
   lfence // lfence requires an SSE CPU, which is OK on x86-64
   {$endif}
 end;
+{$define HAS_READBARRIER}
+{$else}
+//procedure ReadBarrier; // Helps to make an interlocked exchange - with out Barrier operation the result is undefined
+//begin end;
 {$endif}{$endif}
 
+{$IFDEF HAS_READBARRIER}
 procedure RCU32(var src,dst);
 begin
   repeat
@@ -38265,6 +38352,69 @@ begin
       ReadBarrier;
     until CompareMemSmall(@src,@dst,len);
 end;
+{$else} // Not ReadBarrier available
+
+procedure RCU32(var src,dst);
+begin
+  AtomicExchange(Integer(dst), Integer(src));
+end;
+
+procedure RCU64(var src,dst);
+begin
+  AtomicExchange(Int64(dst), Int64(src));
+end;
+
+procedure RCUPtr(var src,dst);
+begin
+  AtomicExchange(Pointer(dst), Pointer(src));
+end;
+
+procedure RCU128(var src,dst);
+var s: THash128Rec absolute src;
+    d: THash128Rec absolute dst;
+begin
+  repeat
+    AtomicExchange(Int64(d.Lo), Int64(s.Lo));
+    AtomicExchange(Int64(d.Hi), Int64(s.Hi));
+  until (d.Lo=s.Lo) and (d.Hi=s.Hi);
+end;
+
+procedure RCU(var src,dst; len: integer);
+begin
+  raise Exception.Create('function RCU with len not implemented for this platform and compiler');
+//  if len>0 then
+//    repeat
+//      MoveSmall(@src,@dst,len); // per-byte inlined copy
+//      ReadBarrier;
+//    until CompareMemSmall(@src,@dst,len);
+end;
+{$endif}
+
+{$IFNDEF HAVE_TSystemTime}
+procedure GetLocalTime(var aLocalTime: TSystemTime);
+var nowDT: TDateTime;
+begin
+  nowDT:= Now;
+  with aLocalTime do
+       begin
+       DecodeDate(nowDT, Year, Month, Day);
+       DecodeTime(nowDT, Hour, Minute, Second, MilliSecond);
+       end;
+  aLocalTime.DayOfWeek:= DayOfWeek(nowDT);
+end;
+
+procedure GetNowUTCSystem(var aSysTime: TSystemTime);
+var nowDT: TDateTime;
+begin
+  nowDT:= NowUTC;
+  with aSysTime do
+       begin
+       DecodeDate(nowDT, Year, Month, Day);
+       DecodeTime(nowDT, Hour, Minute, Second, MilliSecond);
+       end;
+  aSysTime.DayOfWeek:= DayOfWeek(nowDT);
+end;
+{$ENDIF}
 
 procedure FromGlobalTime(LocalTime: boolean; out NewTime: TSynSystemTime);
 var tix: PtrInt;
@@ -39827,43 +39977,43 @@ begin
   GetCaptionFromTrimmed(GetEnumName(aTypeInfo,aIndex),result);
 end;
 
-function CharSetToCodePage(CharSet: integer): cardinal;
-begin
-  case CharSet of
-    SHIFTJIS_CHARSET:   result := 932;
-    HANGEUL_CHARSET:    result := 949;
-    GB2312_CHARSET:     result := 936;
-    HEBREW_CHARSET:     result := 1255;
-    ARABIC_CHARSET:     result := 1256;
-    GREEK_CHARSET:      result := 1253;
-    TURKISH_CHARSET:    result := 1254;
-    VIETNAMESE_CHARSET: result := 1258;
-    THAI_CHARSET:       result := 874;
-    EASTEUROPE_CHARSET: result := 1250;
-    RUSSIAN_CHARSET:    result := 1251;
-    BALTIC_CHARSET:     result := 1257;
-  else result := CODEPAGE_US; // default is ANSI_CHARSET = iso-8859-1 = windows-1252
-  end;
-end;
+//function CharSetToCodePage(CharSet: integer): cardinal;
+//begin
+//  case CharSet of
+//    SHIFTJIS_CHARSET:   result := 932;
+//    HANGEUL_CHARSET:    result := 949;
+//    GB2312_CHARSET:     result := 936;
+//    HEBREW_CHARSET:     result := 1255;
+//    ARABIC_CHARSET:     result := 1256;
+//    GREEK_CHARSET:      result := 1253;
+//    TURKISH_CHARSET:    result := 1254;
+//    VIETNAMESE_CHARSET: result := 1258;
+//    THAI_CHARSET:       result := 874;
+//    EASTEUROPE_CHARSET: result := 1250;
+//    RUSSIAN_CHARSET:    result := 1251;
+//    BALTIC_CHARSET:     result := 1257;
+//  else result := CODEPAGE_US; // default is ANSI_CHARSET = iso-8859-1 = windows-1252
+//  end;
+//end;
 
-function CodePageToCharSet(CodePage: Cardinal): Integer;
-begin
-  case CodePage of
-    932:  result := SHIFTJIS_CHARSET;
-    949:  result := HANGEUL_CHARSET;
-    936:  result := GB2312_CHARSET;
-    1255: result := HEBREW_CHARSET;
-    1256: result := ARABIC_CHARSET;
-    1253: result := GREEK_CHARSET;
-    1254: result := TURKISH_CHARSET;
-    1258: result := VIETNAMESE_CHARSET;
-    874:  result := THAI_CHARSET;
-    1250: result := EASTEUROPE_CHARSET;
-    1251: result := RUSSIAN_CHARSET;
-    1257: result := BALTIC_CHARSET;
-  else result := ANSI_CHARSET; // default is iso-8859-1 = windows-1252
-  end;
-end;
+//function CodePageToCharSet(CodePage: Cardinal): Integer;
+//begin
+//  case CodePage of
+//    932:  result := SHIFTJIS_CHARSET;
+//    949:  result := HANGEUL_CHARSET;
+//    936:  result := GB2312_CHARSET;
+//    1255: result := HEBREW_CHARSET;
+//    1256: result := ARABIC_CHARSET;
+//    1253: result := GREEK_CHARSET;
+//    1254: result := TURKISH_CHARSET;
+//    1258: result := VIETNAMESE_CHARSET;
+//    874:  result := THAI_CHARSET;
+//    1250: result := EASTEUROPE_CHARSET;
+//    1251: result := RUSSIAN_CHARSET;
+//    1257: result := BALTIC_CHARSET;
+//  else result := ANSI_CHARSET; // default is iso-8859-1 = windows-1252
+//  end;
+//end;
 
 function GetMimeContentTypeFromBuffer(Content: Pointer; Len: PtrInt;
   const DefaultContentType: RawUTF8): RawUTF8;
@@ -42056,6 +42206,8 @@ end;
 
 {$else FPC}
 
+{$ifdef CPUINTEL}
+
 procedure CopyArray(dest, source, typeInfo: Pointer; cnt: PtrUInt);
 asm
 {$ifdef CPU64}
@@ -42131,6 +42283,28 @@ asm
         jmp     System.@FinalizeArray
 {$endif CPU64}
 end;
+{$else}
+
+//System.CopyArray
+//procedure CopyArray(dest, source, typeInfo: Pointer; cnt: PtrUInt);
+
+procedure _DynArrayClear(var a: Pointer; typeInfo: Pointer); inline;
+begin
+  System.DynArrayClear(a, typeInfo);
+end;
+
+procedure _FinalizeArray(p: Pointer; typeInfo: Pointer; elemCount: PtrUInt); inline;
+begin
+  System.FinalizeArray(p, typeInfo, elemCount);
+end;
+
+procedure _Finalize(Data: Pointer; TypeInfo: Pointer); inline;
+begin
+  System.FinalizeArray(Data, typeInfo, 1);     // siehe system._Finalize
+end;
+
+{$endif CPUINTEL}
+
 {$endif FPC}
 
 procedure RecordZero(var Dest; TypeInfo: pointer);
@@ -42803,6 +42977,8 @@ end;
   {$endif}
 
 {$ifdef EXPECTSDELPHIRTLRECORDCOPYCLEAR}
+
+{$ifdef CPUINTEL}
 procedure RecordCopy(var Dest; const Source; TypeInfo: pointer);
 asm // same params than _CopyRecord{ dest, source, typeInfo: Pointer }
   {$ifdef CPU64}
@@ -42818,7 +42994,23 @@ asm
   {$endif}
   jmp System.@FinalizeRecord
 end;
+{$else not CPUINTEL}
+
+procedure RecordCopy(var Dest; const Source; TypeInfo: pointer); inline;
+begin
+  CopyRecord(@Dest, @Source, TypeInfo);
+end;
+
+procedure RecordClear(var Dest; TypeInfo: pointer); inline;
+begin
+   FinalizeRecord(@Dest, TypeInfo);
+end;
+
+{$endif CPUINTEL}
+
 {$endif EXPECTSDELPHIRTLRECORDCOPYCLEAR}
+
+
 
 
 {$ifdef DOPATCHTRTL}
@@ -46626,6 +46818,7 @@ begin
   end;
 end;
 
+{$ifdef DOPATCHDISPINVOKE}
 function VariantsDispInvokeAddress: pointer;
 asm
   {$ifdef CPU64}
@@ -46634,6 +46827,7 @@ asm
   mov eax,offset Variants.@DispInvoke
   {$endif}
 end;
+{$endif}
 
 {$ifdef DOPATCHTRTL}
   {$define DOPATCHDISPINVOKE} // much faster late-binding process for our types
@@ -53262,7 +53456,7 @@ end;
 
 procedure TSynLocker.Lock;
 begin
-  EnterCriticalSection(fSection);
+ EnterCriticalSection(fSection);
   inc(fLockCount);
 end;
 
@@ -53274,7 +53468,11 @@ end;
 
 function TSynLocker.TryLock: boolean;
 begin
+  {$IFDEF HAVERTLCriticalSection}
   result := TryEnterCriticalSection(fSection){$ifdef LINUX}{$ifdef FPC}<>0{$endif}{$endif};
+  {$ELSE}
+  result := fSection.TryEnter;
+  {$ENDIF}
   if result then
     inc(fLockCount);
 end;
@@ -58196,6 +58394,7 @@ begin
     FormatShort16('%d',[Micro div QWord(86400000000)],result)
 end;
 
+
 function IsInitializedCriticalSection(const CS: TRTLCriticalSection): Boolean;
 begin
   result := not IsZero(PHash128(@CS)^); // minimum size is 24 bytes = 192 bits
@@ -58203,14 +58402,22 @@ end;
 
 procedure InitializeCriticalSectionIfNeededAndEnter(var CS: TRTLCriticalSection);
 begin
+  {$ifdef HAVERTLCriticalSection}
   if IsZero(PHash128(@CS)^) then
+  {$else}
+  if not assigned(CS) then
+  {$endif}
     InitializeCriticalSection(CS);
   EnterCriticalSection(CS);
 end;
 
 procedure DeleteCriticalSectionIfNeeded(var CS: TRTLCriticalSection);
 begin
+  {$ifdef HAVERTLCriticalSection}
   if not IsZero(PHash128(@CS)^) then
+  {$else}
+  if assigned(CS) then
+  {$endif}  
     DeleteCriticalSection(CS);
 end;
 
@@ -60866,7 +61073,7 @@ begin
       raise ESynException.CreateUTF8('fpmmap(aCustomOffset=%) with SystemInfo.dwPageSize=%',
         [aCustomOffset,SystemInfo.dwPageSize]) else
       aCustomOffset := aCustomOffset div SystemInfo.dwPageSize;
-  fBuf := {$ifdef KYLIX3}mmap{$else}fpmmap{$endif}(
+  fBuf := {$ifdef KYLIX3}mmap{$else} {$ifdef ISDELPHIXE} mmap {$else} fpmmap{$endif}{$endif}(
     nil,fBufSize,PROT_READ,MAP_SHARED,fFile,aCustomOffset);
   if fBuf=MAP_FAILED then begin
     fBuf := nil;
@@ -60912,7 +61119,7 @@ begin
   end;
   {$else}
   if (fBuf<>nil) and (fBufSize>0) and (fFile<>0) then
-    {$ifdef KYLIX3}munmap{$else}fpmunmap{$endif}(fBuf,fBufSize);
+    {$ifdef KYLIX3}munmap{$else} {$ifdef ISDELPHIXE }munmap{$else}fpmunmap{$endif}{$endif}(fBuf,fBufSize);
   {$endif}
   fBuf := nil;
   fBufSize := 0;
@@ -62944,14 +63151,29 @@ begin
 end;
 {$endif CPUINTEL}
 
+{$ifndef FPC}
+  {$ifdef CPUARM} // WithOut type match in function declaration isn't a assignment possible
+  procedure _FillCharFast(var Dest; count: PtrInt; Value: byte);
+  begin
+    System.FillChar(Dest, count, Chr(Value));
+  end;
+  {$endif CPUARM}
+{$endif FPC}
+
 procedure InitFunctionsRedirection;
 begin
   {$ifdef CPUINTEL}
   TestIntelCpuFeatures;
   {$endif CPUINTEL}
   {$ifndef MSWINDOWS} // now for RedirectCode (RetrieveSystemInfo is too late)
-  SystemInfo.dwPageSize := getpagesize; // use libc for this value
-  if SystemInfo.dwPageSize=0 then // should not be 0
+  {$ifdef POSIX}
+  SystemInfo.dwPageSize := sysconf(_SC_PAGESIZE);
+  {$else}
+    {$ifdef FPC} // getPageSize is not POSIX compatible anymore
+    SystemInfo.dwPageSize := getpagesize; // use libc for this value
+    {$endif FPC}
+  {$endif POSIX}
+  if SystemInfo.dwPageSize = 0 then // should not be 0
     SystemInfo.dwPageSize := 4096;
   {$endif MSWINDOWS}
   {$ifdef PUREPASCAL}
@@ -63013,7 +63235,7 @@ begin
   {$endif CPUX64}
   {$else Dephi: }
   {$ifdef CPUARM}
-  FillCharFast := @System.FillChar;
+  FillCharFast := _FillCharFast;
   {$else}
   {$ifndef CPUX64}
   Pointer(@FillCharFast) := SystemFillCharAddress;
@@ -63165,7 +63387,7 @@ begin
   {$endif}
 {$ifndef EXTENDEDTOSHORT_USESTR}
   {$ifdef ISDELPHIXE}
-  SettingsUS := TFormatSettings.Create($0409);
+  SettingsUS := TFormatSettings.Create('en_US'); // $0409);
   {$else}
   GetLocaleFormatSettings($0409,SettingsUS);
   {$endif}

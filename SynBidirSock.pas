@@ -69,7 +69,11 @@ uses
   Windows,
   SynWinSock,
   {$else}
+  {$ifdef ISDELPHIXE}
+  SynDelphiPosixSock,
+  {$else}
   SynFPCSock, // shared with Kylix
+  {$endif ISDELPHIXE}
   {$ifdef KYLIX3}
   LibC,
   Types,
@@ -77,6 +81,8 @@ uses
   {$endif}
   {$ifdef FPC}
   SynFPCLinux,
+  {$else}
+  SynDelphiPosix,
   {$endif}
   {$endif}
   SysUtils,

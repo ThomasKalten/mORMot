@@ -3163,7 +3163,6 @@ function ObjectDefaultToVariant(aClass: TClass; aOptions: TDocVariantOptions): v
 
 
 { ************ cross-cutting classes and types }
-
 type
   {$ifndef LVCL}
   /// any TCollection used between client and server shall inherit from this class
@@ -19739,6 +19738,13 @@ uses
   Unix,
   {$endif}
   dynlibs;
+{$else} // Delphi
+{$ifdef POSIX}
+   Uses  SynDelphiPosix,
+         Posix.Unistd, Posix.SysMMan,
+         POsix.SysTime // Inline Expand
+         ;
+{$endif POSIX}
 {$endif FPC}
 
 // ************ some RTTI and SQL mapping routines
@@ -54815,12 +54821,15 @@ begin
   {$ifdef KYLIX3}
   fStub := mmap(nil,STUB_SIZE,PROT_READ or PROT_WRITE or PROT_EXEC,MAP_PRIVATE or MAP_ANONYMOUS,-1,0);
   {$else}
+  {$ifdef ISDELPHIXE}
+  fStub := mmap(nil,STUB_SIZE,PROT_READ or PROT_WRITE or PROT_EXEC,MAP_PRIVATE or MAP_ANONYMOUS,-1,0);
+  {$else}
   if not MemoryProtection then
     fStub := StubCallAllocMem(STUB_SIZE,PROT_READ or PROT_WRITE or PROT_EXEC);
   if (fStub=MAP_FAILED) or MemoryProtection then begin
     // i.e. on OpenBSD, we can have w^x protection
     fStub := StubCallAllocMem(STUB_SIZE,PROT_READ OR PROT_WRITE);
-    if fStub<>MAP_FAILED then 
+    if fStub<>MAP_FAILED then
       MemoryProtection := True;
   end;
   {$endif KYLIX3}
@@ -54837,7 +54846,11 @@ begin
   {$ifdef KYLIX3}
   munmap(fStub,STUB_SIZE);
   {$else}
+  {$ifdef ISDELPHIXE}
+  munmap(fStub,STUB_SIZE);
+  {$else}
   fpmunmap(fStub,STUB_SIZE);
+  {$endif}
   {$endif}
   {$endif}
   inherited;
@@ -54905,6 +54918,7 @@ begin
           P^ := $b866+(i shl 16); inc(P);  // mov (r)ax,{MethodIndex}
           PByte(P)^ := $c3; inc(PByte(P)); // ret
           {$endif CPUX64}
+          {$ifdef FPC}
           {$ifdef CPUARM}
           {$ifdef ASMORIG}
           P^ := ($e3a040 shl 8)+i;  inc(P); // mov r4 (v1),{MethodIndex} : store method index in register
@@ -54935,6 +54949,14 @@ begin
           P^ := $d61f0140; inc(P);
           P^ := $d503201f; inc(P);
           {$endif CPUAARCH64}
+          {$else FPC} //DELPHI - IMO Deep Knowledge Of Compiler-Details required
+          {$ifdef CPUARM}
+            // Todo!!!!!
+          {$endif CPUARM}
+          {$ifdef CPUAARCH64}
+          {$endif CPUAARCH64}
+            // Todo!!!!!
+          {$endif FPC}
           {$ifdef CPUX86}
           P^ := $68ec8b55; inc(P);                 // push ebp; mov ebp,esp
           P^ := i; inc(P);                         // push {MethodIndex}
@@ -54951,7 +54973,7 @@ begin
           {$endif CPUX86}
         end;
         {$ifdef UNIX}
-        if MemoryProtection then 
+        if MemoryProtection then
           // Enable execution permission of memory
           if SynMProtect(PageAlignedFakeStub , (SystemInfo.dwPageSize shl 1), PROT_READ OR PROT_EXEC)<0 then
              raise EServiceException.CreateUTF8('%.Create: SynMProtect exec failure.',[self]);
@@ -55358,6 +55380,7 @@ begin
   result := fTimer.EnQueue(fTimer.AsynchBackgroundExecute,msg,true);
 end;
 
+{$endif}
 
 { TSQLRestBackgroundTimer }
 
@@ -57782,6 +57805,7 @@ type
   {$endif}
 
 // ARM/AARCH64 code below provided by ALF, greatly inspired by pascalscript
+{$ifdef FPC}
 {$ifdef CPUARM}
 procedure CallMethod(var Args: TCallMethodArgs); assembler; nostackframe;
 label stack_loop,load_regs,asmcall_end,float_result;
@@ -57955,6 +57979,21 @@ asmcall_end:
    ret
 end;
 {$endif CPUAARCH64}
+{$else FPC} // DELPHI
+{$ifdef CPUARM}
+procedure CallMethod(var Args: TCallMethodArgs);
+begin
+  raise Exception.Create('mormot CallMethod not impmented');
+end;
+{$endif CPUARM}
+
+{$ifdef CPUAARCH64}
+procedure CallMethod(var Args: TCallMethodArgs);
+begin
+  raise Exception.Create('mormot CallMethod not impmented');
+end;
+{$endif CPUAARCH64}
+{$endif FPC}
 
 {$ifdef CPUX64}
 procedure CallMethod(var Args: TCallMethodArgs); assembler;
@@ -60438,7 +60477,11 @@ begin
               {$ifdef CPUARM}
               // for e.g. INT64 on 32-bit ARM systems; these are also passed in the normal registers
               if SizeInStack>PTRSIZ then
-                call.ParamRegs[RegisterIdent+1] := PPtrInt(Value+PTRSIZ)^;
+                 {$ifdef FPC}
+                 call.ParamRegs[RegisterIdent+1] := PPtrInt(Value+PTRSIZ)^;
+                 {$else}
+                 call.ParamRegs[RegisterIdent+1] := PPtrInt({$ifdef CPU64BITS} UInt64 {$else} UInt {$endif} (Value) + PTRSIZ)^; // inc(Value, PTRSIZ);
+                 {$endif}
               {$endif}
             end;
             {$ifndef CPUX86}

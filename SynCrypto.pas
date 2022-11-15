@@ -90,12 +90,16 @@ interface
     {.$define USEPADLOCK} // dedibox Linux tested only
   {$endif}
 {$else}
+  {$ifdef MSWINDOWS}
   {$ifndef DELPHI5OROLDER}
     // on Windows: enable Microsoft AES Cryptographic Provider (XP SP3 and up)
     {$define USE_PROV_RSA_AES}
   {$endif}
   // on Windows: will use Threads for very big blocks (>512KB) if multi-CPU
   {$define USETHREADSFORBIGAESBLOCKS}
+  {$else}
+    {$undef USETHREADSFORBIGAESBLOCKS} // uses low-level WinAPI threading
+  {$endif}
 {$endif}
 
 {$ifdef USEPADLOCK}
@@ -2929,8 +2933,22 @@ implementation
 
 {$ifndef NOVARIANTS}
 uses
+  {$ifdef ISDELPHIXE}
+  {$ifdef POSIX}
+  SynDelphiPosix,
+  Posix.SysStat,
+  {$endif}
+  {$endif}
   Variants;
-{$endif}
+{$else NOVARIANTS}
+  {$ifdef ISDELPHIXE}
+  {$ifdef POSIX}
+  uses
+    SynDelphiPosix,
+    Posix.SysStat;
+  {$endif}
+  {$endif}
+{$endif NOVARIANTS}
 
 function ToText(res: TProtocolResult): PShortString;
 begin

@@ -3349,6 +3349,11 @@ function ToText(cmd: TSQLDBProxyConnectionCommand): PShortString; overload;
 
 
 implementation
+{$ifndef FPC}
+{$ifdef POSIX }
+uses SynDelphiPosix;
+{$endif}
+{$endif}
 
 function ToText(DBMS: TSQLDBDefinition): PShortString;
 begin

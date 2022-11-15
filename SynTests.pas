@@ -953,7 +953,11 @@ begin
   System.Assign(fSaveToFile,'');
   Rewrite(fSaveToFile);
   {$ifndef MSWINDOWS}
-  TTextRec(fSaveToFile).LineEnd := #13#10;
+    {$ifdef FPC}
+    TTextRec(fSaveToFile).LineEnd := #13#10;
+    {$else}
+    TTextRec(fSaveToFile).Flags:= TTextRec(fSaveToFile).Flags or tfCRLF;
+    {$endif}
   {$endif}
   StdOut := TTextRec(fSaveToFile).Handle;
 end;

@@ -1600,6 +1600,14 @@ uses
   {$ifdef Linux}
   , SynFPCLinux, BaseUnix, Unix, Errors, dynlibs
   {$endif} ;
+{$else}
+{$ifdef POSIX}
+  Uses SynDelphiPosix,
+       Posix.String_, System.AnsiStrings,
+       Posix.Unistd, Posix.Errno // Inline expand
+       ;
+{$endif POSIX}
+
 {$endif FPC}
 
 var
@@ -2386,7 +2394,9 @@ threadvar
 // - this one does not produce accurate stack trace by now, and is supported
 // only since Windows XP
 // - so default method using RTLUnwindProc should be prefered with Delphi
-{.$define WITH_VECTOREXCEPT}
+{$ifdef MSWINDOWS}
+  {.$define WITH_VECTOREXCEPT}
+{$endif}
 
 function ToText(var info: TSynLogExceptionInfo): RawUTF8;
 begin
@@ -3119,6 +3129,7 @@ end;
 
 {$else WITH_VECTOREXCEPT}
 
+{$ifdef CPUINTEL}
 var oldUnWindProc: pointer;
 
 procedure SynRtlUnwind(TargetFrame, TargetIp: pointer;
@@ -3135,6 +3146,12 @@ asm
   pop ebp // hidden push ebp at asm level
   jmp oldUnWindProc
 end;
+{$else}
+{$ifdef ISDELPHIXE}
+
+{$endif ISDELPHIXE}
+{$endif CPUINTEL}
+
 
 {$endif WITH_VECTOREXCEPT}
 {$endif WITH_MAPPED_EXCEPTIONS}
@@ -4880,7 +4897,9 @@ begin
   except // don't let any unexpected GPF break the logging process
   end;
 end;
-{$else}
+{$else}   // Delphi ...
+
+{$ifdef CPUINTEL}
 {$ifndef CPU64}
   procedure AddStackManual(Stack: PPtrUInt);
     function check2(xret: PtrUInt): Boolean;
@@ -4933,14 +4952,23 @@ end;
       // just ignore any access violation here
     end;
   end;
+{$else CPU64}
+  procedure AddStackManual(Stack: PPtrUInt); inline;
+  begin end;
+{$endif}
+{$else CPUINTEL}
+  procedure AddStackManual(Stack: PPtrUInt); inline;
+  begin end;
 {$endif}
 {$ifdef WITH_MAPPED_EXCEPTIONS}
 begin
   AddStackManual(Stack);
 end;
 {$else}
+{$ifdef MSWINDOWS}
 var n, i: integer;
     BackTrace: array[byte] of PtrUInt;
+{$endif}
 begin
   if fFamily.StackTraceLevel<=0 then
     exit;
@@ -4948,9 +4976,7 @@ begin
   if (fFamily.StackTraceUse=stOnlyManual) or
      (RtlCaptureStackBackTraceRetrieved<>btOK) then begin
     {$ifndef FPC}
-    {$ifndef CPU64}
     AddStackManual(Stack);
-    {$endif}
     {$endif}
   end else begin
     try
@@ -4958,9 +4984,7 @@ begin
       if (n<MINIMUM_EXPECTED_STACKTRACE_DEPTH) and
          (fFamily.StackTraceUse<>stOnlyAPI) then begin
         {$ifndef FPC}
-        {$ifndef CPU64}
         AddStackManual(Stack);
-        {$endif}
         {$endif}
       end else begin
         fWriter.AddShort(' stack trace API ');
@@ -5315,7 +5339,7 @@ begin
     fFreq := GetNextItemInt64(P);
     fFreqPerDay := fFreq*SecsPerDay;
     fStartDateTime := GetNextItemDouble(P);
-    UTF8DecodeToString(P,StrLen(P),string(fFileName));
+    UTF8DecodeToString(P, {$ifdef ISDELPHIXE}System.AnsiStrings.StrLen(PansiChar(P)){$else} StrLen(P) {$endif}, string(fFileName));
   end else
     inherited AddInMemoryLine(aNewLine);
 end;

@@ -95,6 +95,10 @@ uses
     {$endif}
     {$ifdef FPC}
       SynFPCLinux,
+    {$else}
+      SynDelphiPosix,
+      System.SyncObjs, // Inline expand
+      POsix.Unistd, // Inline expand
     {$endif}
   {$endif MSWINDOWS}
   SysUtils,

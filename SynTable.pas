@@ -69,6 +69,11 @@ uses
       BaseUnix,
       Unix,
     {$endif FPC}
+    {$ifdef  POSIX}
+    {$ifdef  ISDELPHIXE}
+    Posix.SysTime, // Inline Expand
+    {$endif}
+    {$endif}
   {$endif MSWINDOWS}
   SysUtils,
   Classes,
@@ -4091,7 +4096,14 @@ type
 {$ifdef FPC}{$ifdef Linux}
 var
   stdoutIsTTY: boolean;
-{$endif}{$endif}
+{$endif}
+{$else}
+  {$ifdef POSIX}
+  var
+    stdoutIsTTY: boolean;
+  {$endif}
+{$endif}
+
 
 /// change the console text writing color
 // - you should call this procedure to initialize StdOut global variable, if
@@ -5165,6 +5177,13 @@ uses
   Linux,
   {$endif BSD}
   SynFPCLinux;
+{$else}
+  {$ifdef  POSIX}
+  {$ifdef  ISDELPHIXE}
+  Uses SynDelphiPosix,
+       Posix.StrOpts, Posix.Unistd;
+  {$endif}
+  {$endif}
 {$endif FPCLINUX}
 
 
@@ -17173,6 +17192,7 @@ begin
   if info.memtotal<>0 then // avoid div per 0 exception
     info.percent := ((info.memtotal-info.memfree)*100)div info.memtotal;
 {$else}
+{$ifndef ISDELPHIXE}
 var si: TSysInfo; // Linuxism
     P: PUTF8Char;
     {$ifdef FPC}mu: cardinal{$else}const mu=1{$endif};
@@ -17197,7 +17217,11 @@ begin
     info.allocused := GetNextItemCardinal(P,' ')*SystemInfo.dwPageSize;     // VmRSS
   end;
   // GetHeapStatus is only about current thread -> use /proc/[pid]/statm
+{$else}
+begin
+{$endif ISDELPHIXE}
 {$endif BSD}
+
 {$endif MSWINDOWS}
 {$ifdef WITH_FASTMM4STATS} // override OS information by actual FastMM4
   if withalloc then begin
@@ -17296,6 +17320,40 @@ function DeviceIoControl(hDevice: THandle; dwIoControlCode: DWORD; lpInBuffer: P
   var lpBytesReturned: DWORD; lpOverlapped: POverlapped): BOOL; stdcall; external kernel32;
 {$endif}
 
+{$ifdef ISDELPHIXE}
+  // SeachPath:
+  //  $(BDS)\source\rtl\posix\android\ or
+  //  $(BDS)\source\rtl\posix\linux\ or
+{$ifdef ANDROID}
+  {$include 'BaseTypes.inc'}
+{$endif}
+{$ifdef LINUX}
+  {$include 'BaseTypes.inc'}
+{$endif}
+
+{$if DEFINED(ANDROID) or DEFINED(LINUX)}
+type
+  __statfs = record
+    f_type,
+    f_bsize: LongWord;
+    f_blocks,
+    f_bfree,
+    f_bavail,
+    f_files,
+    f_ffree,
+    f_fsid,
+    f_namelen,
+    f_frsize,
+    f_flags: UInt64;
+    f_spare: packed array[0..4-1] of UInt64;
+  end;
+
+function _statfs(__file: MarshaledAString; var __buf: __statfs): Integer; cdecl;
+  external libc name _PU + 'statfs';
+{$endif DEFINED(ANDROID) or DEFINED(LINUX)}
+{$endif}
+
+
 function GetDiskInfo(var aDriveFolderOrFile: TFileName;
   out aAvailableBytes, aFreeBytes, aTotalBytes: QWord
   {$ifdef MSWINDOWS}; aVolumeName: PFileName = nil{$endif}): boolean;
@@ -17339,6 +17397,15 @@ begin
   aAvailableBytes := QWord(fs.bavail)*QWord(fs.bsize);
   aFreeBytes := aAvailableBytes; // no user Quota involved here
   aTotalBytes := QWord(fs.blocks)*QWord(fs.bsize);
+{$else}
+var fs: __statfs;
+begin
+  if aDriveFolderOrFile = '' then
+     aDriveFolderOrFile:= '.';
+  result := _statfs(PAnsiChar({$ifdef ISDELPHIXE} AnsiString {$endif} (aDriveFolderOrFile)), fs) = 0;
+  aAvailableBytes := QWord(fs.f_bavail)*QWord(fs.f_bsize);
+  aFreeBytes := aAvailableBytes; // no user Quota involved here
+  aTotalBytes := QWord(fs.f_blocks)*QWord(fs.f_bsize);
 {$endif FPC}
 {$endif MSWINDOWS}
 end;
@@ -18176,7 +18243,13 @@ begin
 {$ifdef FPC}{$ifdef Linux}
   if not stdoutIsTTY then
     exit;
-{$endif}{$endif}
+{$endif}
+{$else}
+{$ifdef POSIX}
+  if not stdoutIsTTY then
+    exit;
+{$endif}
+{$endif}
   if ord(color)=TextAttr then
     exit;
   TextAttr := ord(color);
@@ -18191,7 +18264,9 @@ begin // not implemented yet - but not needed either
 end;
 
 procedure ConsoleWaitForEnterKey;
+{$ifdef FPC}
 var c: AnsiChar;
+{$endif FPC}
 begin
   {$ifdef FPC}
   if IsMultiThread and (GetCurrentThreadID=MainThreadID) then
@@ -18220,20 +18295,36 @@ end;
 function ConsoleReadBody: RawByteString;
 var len, n: integer;
     P: PByte;
-    {$ifndef FPC}StdInputHandle: THandle;{$endif}
+    {$ifdef MSWINDOWS}
+    {$ifndef FPC}
+    StdInputHandle: THandle;
+    {$endif}
+    {$ENDIF}
 begin
   result := '';
   {$ifdef MSWINDOWS}
   {$ifndef FPC}StdInputHandle := GetStdHandle(STD_INPUT_HANDLE);{$endif}
   if not PeekNamedPipe(StdInputHandle,nil,0,nil,@len,nil) then
   {$else}
+  {$IFDEF FPC}
   if fpioctl(StdInputHandle,FIONREAD,@len)<0 then
-  {$endif}
+  {$else}
+  if ioctl(TTextRec(System.Input).Handle, FIONREAD, @len)<0 then
+  {$endif FPC}
+  {$endif MSWINDOWS}
     len := 0;
   SetLength(result,len);
   P := pointer(result);
   while len>0 do begin
+    {$ifdef MSWINDOWS}
     n := FileRead(StdInputHandle,P^,len);
+    {$else}
+    {$ifdef FPC}
+    n := FileRead(StdInputHandle,P^,len);
+    {$else}
+    n := FileRead(TTextRec(System.Input).Handle,P^,len);
+    {$endif FPC}
+    {$endif MSWINDOWS}
     if n<=0 then begin
       result := ''; // read error
       break;
@@ -18474,7 +18565,13 @@ begin
   {$ifdef MSWINDOWS}
   InitWindowsAPI;
   {$else}
+  {$ifdef FPC}
   stdoutIsTTY := IsATTY(StdOutputHandle)=1;
+  {$else}
+  {$ifdef POSIX}
+  stdoutIsTTY := IsATTY(TTextRec(System.Output).Handle {STDOUT_FILENO}) = 1;
+  {$endif POSIX}
+  {$endif FPC}
   {$endif MSWINDOWS}
   SetLength(JSON_SQLDATE_MAGIC_TEXT,3);
   PCardinal(pointer(JSON_SQLDATE_MAGIC_TEXT))^ := JSON_SQLDATE_MAGIC;

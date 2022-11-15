@@ -193,7 +193,7 @@ uses
   {$ifdef USE_SYNGDIPLUS}
   SynGdiPlus, // use our GDI+ library for handling TJpegImage and such
   {$else}
-  jpeg,
+//  jpeg,
   {$endif}
   SysConst,
   SysUtils,
@@ -232,6 +232,9 @@ const
 {  some low-level record definition for True Type format table reading }
 
 type
+  {$IFNDEF MSWINDOWS}
+  HDC = THandle;
+  {$ENDIF}
   PSmallIntArray = ^TSmallIntArray;
   TSmallIntArray = array[byte] of SmallInt;
 
@@ -1246,7 +1249,9 @@ type
       AStyle: TPdfFontStyles; ACharSet: byte): TPdfFont; overload;
     /// get the supplied TrueType Font from the internal font list
     // - if the true type font doesn't exist yet, returns NIL
+    {$IFDEF MSWINDOWS}
     function GetRegisteredTrueTypeFont(const AFontLog: TLogFontW): TPdfFont; overload;
+    {$ENDIF}
     /// find an index of in FTrueTypeFonts[]
     function GetTrueTypeFontIndex(const AName: RawUTF8): integer;
     // select the specified font object, then return the fDC value
@@ -1946,8 +1951,9 @@ type
     /// set the current font for the PDF Canvas
     // - this method use the Win32 structure that defines the characteristics
     // of the logical font
+    {$IFDEF MSWINDOWS}
     function SetFont(ADC: HDC; const ALogFont: TLogFontW; ASize: single): TPdfFont; overload;
-
+    {$ENDIF}
     /// show some text at a specified page position
     procedure TextOut(X, Y: Single; const Text: PDFString);
     /// show some unicode text at a specified page position
@@ -2280,7 +2286,9 @@ type
     // - in Unicode Fonts for all available glyphs from TPdfTTF values
     fUsedWideChar: TSortedWordArray;
     fUsedWide: TUsedWide;
+    {$IFDEF MSWINDOWS}
     fHGDI: HGDIOBJ;
+    {$ENDIF}
     fFixedWidth: boolean;
     fFontDescriptor: TPdfDictionary;
     fFontFile2: TPdfStream;

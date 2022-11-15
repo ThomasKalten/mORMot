@@ -84,7 +84,11 @@ uses
   Types,
   LibC,
   {$else}
+  {$ifdef FPC}
   SynFPCLinux,
+  {$else}
+  SynDelphiPosix,
+  {$endif FPC}
   {$endif}
 {$endif}
   SysUtils,
