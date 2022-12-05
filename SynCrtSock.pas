@@ -1655,13 +1655,16 @@ type
 
   PHttpApiWebSocketConnectionVector = ^THttpApiWebSocketConnectionVector;
 
-  /// Event handlers for WebSocket
+  /// Event handler on THttpApiWebSocketServerProtocol Accept
   THttpApiWebSocketServerOnAcceptEvent = function(Ctxt: THttpServerRequest;
     var Conn: THttpApiWebSocketConnection): Boolean of object;
-  THttpApiWebSocketServerOnMessageEvent = procedure(const Conn: THttpApiWebSocketConnection;
+  /// Event handler on THttpApiWebSocketServerProtocol Message received
+  THttpApiWebSocketServerOnMessageEvent = procedure(var Conn: THttpApiWebSocketConnection;
     aBufferType: WEB_SOCKET_BUFFER_TYPE; aBuffer: Pointer; aBufferSize: ULONG) of object;
-  THttpApiWebSocketServerOnConnectEvent = procedure(const Conn: THttpApiWebSocketConnection) of object;
-  THttpApiWebSocketServerOnDisconnectEvent = procedure(const Conn: THttpApiWebSocketConnection;
+  /// Event handler on THttpApiWebSocketServerProtocol connection
+  THttpApiWebSocketServerOnConnectEvent = procedure(var Conn: THttpApiWebSocketConnection) of object;
+  /// Event handler on THttpApiWebSocketServerProtocol disconnection
+  THttpApiWebSocketServerOnDisconnectEvent = procedure(var Conn: THttpApiWebSocketConnection;
     aStatus: WEB_SOCKET_CLOSE_STATUS; aBuffer: Pointer; aBufferSize: ULONG) of object;
 
   /// Protocol Handler of websocket endpoints events
@@ -9369,6 +9372,7 @@ begin
         InCompressAccept := ComputeContentEncoding(fCompress,pointer(InAcceptEncoding));
         Context.fUseSSL := Req^.pSslInfo<>nil;
         Context.fInHeaders := RetrieveHeaders(Req^,fRemoteIPHeaderUpper,RemoteIP);
+        Context.RemoteIP := RemoteIP;
         // compute remote connection ID
         L := length(fRemoteConnIDHeaderUpper);
         if L<>0 then begin
