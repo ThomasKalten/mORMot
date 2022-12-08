@@ -38434,16 +38434,10 @@ begin
       if LocalTime then
         GetLocalTime(newtimesys) else
         {$ifdef MSWINDOWS}GetSystemTime{$else}GetNowUTCSystem{$endif}(newtimesys);
-      //RCU128(newtimesys,time);
-      //todo: lock
-      time:= newtimesys;
-      // todo unlock
+      RCU128(newtimesys,time);
     end else
        begin
-       // RCU128(time,NewTime);
-       //todo: lock
-       NewTime:= time;
-       // todo unlock
+       RCU128(time,NewTime);
        end;
   end;
   {$ifndef MSWINDOWS} // those TSystemTime fields are inverted in datih.inc :(
