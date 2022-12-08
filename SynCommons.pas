@@ -16992,6 +16992,7 @@ uses
   {$IFDEF POSIX}
   uses Posix.SysStat, Posix.SysTime,
        Posix.SysMMan, Posix.Unistd,
+       Posix.Stdio, // Inline Expand
        SynDelphiPosix
      {$IFDEF ISDELPHIXE}
      , System.DateUtils
@@ -38294,7 +38295,8 @@ var // GlobalTime[LocalTime] cache protected using RCU128()
 {$ifdef FPC}
   {$define HAS_READBARRIER}
 {$endif}
-{$ifndef FPC}{$ifdef CPUINTEL} // intrinsic in FPC
+{$ifndef FPC} // intrinsic in FPC
+{$ifdef CPUINTEL}
 procedure ReadBarrier;
 asm
   {$ifdef CPUX86}
@@ -38305,9 +38307,13 @@ asm
 end;
 {$define HAS_READBARRIER}
 {$else}
-//procedure ReadBarrier; // Helps to make an interlocked exchange - with out Barrier operation the result is undefined
-//begin end;
-{$endif}{$endif}
+procedure ReadBarrier; inline;// Helps to make an interlocked exchange - with out Barrier operation the result is undefined
+begin
+  MemoryBarrier;
+end;
+{$define HAS_READBARRIER}
+{$endif}
+{$endif}
 
 {$IFDEF HAS_READBARRIER}
 procedure RCU32(var src,dst);
@@ -38353,7 +38359,6 @@ begin
     until CompareMemSmall(@src,@dst,len);
 end;
 {$else} // Not ReadBarrier available
-
 procedure RCU32(var src,dst);
 begin
   AtomicExchange(Integer(dst), Integer(src));
@@ -38369,13 +38374,13 @@ begin
   AtomicExchange(Pointer(dst), Pointer(src));
 end;
 
-procedure RCU128(var src,dst);
+procedure _RCU128(var src,dst);
 var s: THash128Rec absolute src;
     d: THash128Rec absolute dst;
 begin
   repeat
-    AtomicExchange(Int64(d.Lo), Int64(s.Lo));
-    AtomicExchange(Int64(d.Hi), Int64(s.Hi));
+    AtomicExchange(d.Lo, s.Lo);
+    AtomicExchange(d.Hi, s.Hi);
   until (d.Lo=s.Lo) and (d.Hi=s.Hi);
 end;
 
@@ -38429,9 +38434,17 @@ begin
       if LocalTime then
         GetLocalTime(newtimesys) else
         {$ifdef MSWINDOWS}GetSystemTime{$else}GetNowUTCSystem{$endif}(newtimesys);
-      RCU128(newtimesys,time);
+      //RCU128(newtimesys,time);
+      //todo: lock
+      time:= newtimesys;
+      // todo unlock
     end else
-      RCU128(time,NewTime);
+       begin
+       // RCU128(time,NewTime);
+       //todo: lock
+       NewTime:= time;
+       // todo unlock
+       end;
   end;
   {$ifndef MSWINDOWS} // those TSystemTime fields are inverted in datih.inc :(
   tix := newtimesys.DayOfWeek;

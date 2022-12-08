@@ -262,10 +262,14 @@
       {$define FPCSQLITE3STATIC} // use static/x86_64-linux\sqlite3.o
     {$endif}
     {$ifdef CPUARM}
-      {$define FPCSQLITE3STATIC} // use static/arm-linux\sqlite3.o
+      {$ifdef FPC} // DelphiXE: Dynamic-Linking!
+        {$define FPCSQLITE3STATIC} // use static/arm-linux\sqlite3.o
+      {$endif}
     {$endif}
     {$ifdef CPUAARCH64}
-      {$define FPCSQLITE3STATIC} // use:static/aarch64-linux\sqlite3.o
+      {$ifdef FPC} // DelphiXE: Dynamic-Linking!
+        {$define FPCSQLITE3STATIC} // use:static/aarch64-linux\sqlite3.o
+      {$endif}
     {$endif}
   {$endif}
 
@@ -726,6 +730,9 @@
       // :( to avoid "Fatal: F2084 Internal Error: AV004A7B1F-R03BDA7B0-0"
     {$ifend}
   {$endif} // other Win32/Win64 Delphi platforms should work as expected
+  {$ifndef FPCSQLITE3STATIC} // see above about this FPC-specific conditional
+    {$define NOSQLITE3STATIC}
+  {$endif}
 {$endif FPC}
 
 {$ifdef NOSQLITE3STATIC}
