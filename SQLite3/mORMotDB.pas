@@ -1888,9 +1888,13 @@ begin
         stmt.Bind(F+1,Types[F],Decoder.FieldValues[F],true);
       stmt.ExecutePrepared;
     except
-      stmt := nil;
-      HandleClearPoolOnConnectionIssue;
-      exit; // leave result=0
+      on E: Exception do
+         begin
+         TSynLog.Add.Log(sllWarning, 'Exception on executing SQL: ' + E.Message, 0);
+         stmt := nil;
+         HandleClearPoolOnConnectionIssue;
+         exit; // leave result=0
+         end;
     end;
     // mark success
     if UpdatedID=0 then
