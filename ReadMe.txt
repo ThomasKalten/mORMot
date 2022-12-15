@@ -1,3 +1,8 @@
+This version 
+- compiles on Delphi11 for Android!
+- is used to do an ORM-Mapping to a (not neccesary local) PostgreSQL-DB
+- nothing else is tested
+- I try to keep it uptodate with the head version
 
   Synopse mORMot framework
 
