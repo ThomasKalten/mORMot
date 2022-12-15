@@ -553,7 +553,7 @@ type
     // - e.g. 'Content-Encoding: synlz' header if compressed using synlz
     // - and if Data is not '', will add 'Content-Type: ' header
     procedure CompressDataAndWriteHeaders(const OutContentType: SockString;
-      var OutContent: SockString);
+      var OutContent: SockString; OutContentLength: PtrInt = -1);
   public
     /// TCP/IP prefix to mask HTTP protocol
     // - if not set, will create full HTTP/1.0 or HTTP/1.1 compliant content
@@ -2561,7 +2561,7 @@ function OpenHttp(const aURI: SockString; aAddress: PSockString=nil): THttpClien
 // the overloaded HttpGet() methods
 function HttpGet(const server, port: SockString; const url: SockString;
   const inHeaders: SockString; outHeaders: PSockString=nil;
-  aLayer: TCrtSocketLayer = cslTCP): SockString; overload;
+  aLayer: TCrtSocketLayer = cslTCP; outStatus: PInteger = nil): SockString; overload;
 
 /// retrieve the content of a web page, using the HTTP/1.1 protocol and GET method
 // - this method will use a low-level THttpClientSock socket for plain http URI,
@@ -5935,14 +5935,18 @@ end;
 
 function HttpGet(const server, port: SockString; const url: SockString;
   const inHeaders: SockString; outHeaders: PSockString;
-  aLayer: TCrtSocketLayer): SockString;
+  aLayer: TCrtSocketLayer; outStatus: PInteger): SockString;
 var Http: THttpClientSocket;
+    status: integer;
 begin
   result := '';
   Http := OpenHttp(server,port,false,aLayer);
   if Http<>nil then
   try
-    if Http.Get(url,0,inHeaders) in [STATUS_SUCCESS..STATUS_PARTIALCONTENT] then begin
+    status := Http.Get(url,0,inHeaders);
+    if outStatus <> nil then
+      outStatus^ := status;
+    if status in [STATUS_SUCCESS..STATUS_PARTIALCONTENT] then begin
       result := Http.Content;
       if outHeaders<>nil then
         outHeaders^ := Http.HeaderGetText;
@@ -5973,7 +5977,7 @@ begin
       raise ECrtSocket.CreateFmt('https is not supported by HttpGet(%s)',[aURI]) else
       {$endif}
       {$endif USEWININET}
-      result := HttpGet(URI.Server,URI.Port,URI.Address,inHeaders,outHeaders,URI.Layer) else
+      result := HttpGet(URI.Server,URI.Port,URI.Address,inHeaders,outHeaders,URI.Layer,outStatus) else
     result := '';
   {$ifdef LINUX_RAWDEBUGVOIDHTTPGET}
   if result='' then
@@ -6604,6 +6608,7 @@ var ctxt: THttpServerRequest;
   var
     fs: TFileStream;
     fn: TFileName;
+    len: PtrInt;
   begin
     result := not Terminated; // true=success
     if not result then
@@ -6612,16 +6617,21 @@ var ctxt: THttpServerRequest;
     TSynLog.Add.Log(sllCustom2, 'SendResponse respsent=% code=%', [respsent,code], self);
     {$endif}
     respsent := true;
+    len := -1; // use length(ctxt.OutContent) by default
     // handle case of direct sending of static file (as with http.sys)
     if (ctxt.OutContent<>'') and (ctxt.OutContentType=HTTP_RESP_STATICFILE) then
       try
         ExtractNameValue(ctxt.fOutCustomHeaders,'CONTENT-TYPE:',ctxt.fOutContentType);
         fn := {$ifdef UNICODE}UTF8ToUnicodeString{$else}Utf8ToAnsi{$endif}(ctxt.OutContent);
-        if not Assigned(fOnSendFile) or not fOnSendFile(ctxt,fn) then begin
+        if (ctxt.Method='HEAD') or not Assigned(fOnSendFile) or not fOnSendFile(ctxt,fn) then begin
           fs := TFileStream.Create(fn,fmOpenRead or fmShareDenyNone);
           try
-            SetString(ctxt.fOutContent,nil,fs.Size);
-            fs.Read(Pointer(ctxt.fOutContent)^,length(ctxt.fOutContent));
+            if ctxt.Method='HEAD' then
+              len := fs.Size else
+            begin // regular GET or POST response
+              SetString(ctxt.fOutContent,nil,fs.Size);
+              fs.Read(Pointer(ctxt.fOutContent)^,length(ctxt.fOutContent));
+            end;
          finally
             fs.Free;
           end;
@@ -6668,7 +6678,7 @@ var ctxt: THttpServerRequest;
     ClientSock.SockSend([
       {$ifndef NOXPOWEREDNAME}XPOWEREDNAME+': '+XPOWEREDVALUE+#13#10+{$endif}
       'Server: ',fServerName]);
-    ClientSock.CompressDataAndWriteHeaders(ctxt.OutContentType,ctxt.fOutContent);
+    ClientSock.CompressDataAndWriteHeaders(ctxt.OutContentType,ctxt.fOutContent,len);
     if ClientSock.KeepAliveClient then begin
       if ClientSock.fCompressAcceptEncoding<>'' then
         ClientSock.SockSend(ClientSock.fCompressAcceptEncoding);
@@ -6689,7 +6699,7 @@ begin
   try
     respsent := false;
     with ClientSock do
-      ctxt.Prepare(URL,Method,HeaderGetText(fRemoteIP),Content,ContentType,'',ClientSock.fTLS);
+      ctxt.Prepare(URL,Method,HeaderGetText(fRemoteIP),Content,ContentType,fRemoteIP,ClientSock.fTLS);
     try
       Code := DoBeforeRequest(ctxt);
       {$ifdef SYNCRTDEBUGLOW}
@@ -7154,7 +7164,7 @@ begin
 end;
 
 procedure THttpSocket.CompressDataAndWriteHeaders(const OutContentType: SockString;
-  var OutContent: SockString);
+  var OutContent: SockString; OutContentLength: PtrInt);
 var OutContentEncoding: SockString;
 begin
   if integer(fCompressAcceptHeader)<>0 then begin
@@ -7163,7 +7173,9 @@ begin
     if OutContentEncoding<>'' then
         SockSend(['Content-Encoding: ',OutContentEncoding]);
   end;
-  SockSend(['Content-Length: ',length(OutContent)]); // needed even 0
+  if OutContentLength<0 then
+    OutContentLength := length(OutContent);
+  SockSend(['Content-Length: ',OutContentLength]); // needed even 0
   if (OutContentType<>'') and (OutContentType<>HTTP_RESP_STATICFILE) then
     SockSend(['Content-Type: ',OutContentType]);
 end;
