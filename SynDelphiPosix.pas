@@ -6,7 +6,7 @@ unit SynDelphiPosix;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2022 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
