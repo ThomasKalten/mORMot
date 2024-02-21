@@ -4676,7 +4676,8 @@ end;
 
 procedure TSynLog.LogInternal(Level: TSynLogInfo; const Text: RawUTF8;
   Instance: TObject; TextTruncateAtLength: integer);
-var LastError,L: cardinal;
+var LastError: cardinal;
+    L: integer;
 begin
   if Level=sllLastError then
     LastError := GetLastError else
