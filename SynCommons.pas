@@ -88,6 +88,7 @@ uses
     BaseUnix,
   {$else}
     Posix.SysUtsname,
+    System.TypInfo,
   {$endif FPC}
 {$endif MSWINDOWS}
   Classes,
@@ -5076,13 +5077,13 @@ type
 
   /// cross-compiler type used for string reference counter
   // - FPC and Delphi don't always use the same type
-  TStrCnt = {$ifdef STRCNT32} longint {$else} SizeInt {$endif};
+  TStrCnt = {$ifdef STRCNT32} {$ifdef LONGINT8BYTE} integer {$else} longint {$else} SizeInt {$endif}{$endif};
   /// pointer to cross-compiler type used for string reference counter
   PStrCnt = ^TStrCnt;
 
   /// cross-compiler type used for dynarray reference counter
   // - FPC uses PtrInt/SizeInt, Delphi uses longint even on CPU64
-  TDACnt = {$ifdef DACNT32} longint {$else} SizeInt {$endif};
+  TDACnt = {$ifdef DACNT32} {$ifdef LONGINT8BYTE} integer {$else} longint {$else} SizeInt {$endif}{$endif};
   /// pointer to cross-compiler type used for dynarray reference counter
   PDACnt = ^TDACnt;
 
@@ -20615,7 +20616,7 @@ type
       //DynUnitName: ShortStringBase;
       {$else}
       // storage byte count for this field
-      elSize: Longint;
+      elSize: {$ifdef LONGINT8BYTE} Integer {$else}  Longint {$endif};
       // nil for unmanaged field
       elType: PTypeInfoStored;
       // OleAuto compatible type
@@ -21282,7 +21283,7 @@ end;
 
 {$else}
 
-procedure FastAssignNew(var d; s: pointer); {$ifdef HASINLINE} inline; {$endif}
+procedure FastAssignNew(var d; s: pointer); {$ifdef HASINLINE} {inline; }{$endif}
 var
   sr: PStrRec; // local copy to use register
 begin
@@ -30956,7 +30957,15 @@ begin
   result := r >= 0;
   if not result then
     exit;
+  {$ifdef FPC}
   FileId := lp.st_ino;
+  {$else}
+     {$ifdef CPU64BITS}
+     FileId := lp.__st_ino;
+     {$else}
+     FileId := lp.st_ino;
+     {$endif}
+  {$endif}
   FileSize := lp.st_size;
   lastreadaccess := lp.st_atime * MSecsPerSec;
   LastWriteAccess := lp.st_mtime * MSecsPerSec;
@@ -46841,8 +46850,10 @@ end;
   {$define DOPATCHDISPINVOKE} // much faster late-binding process for our types
 {$endif}
 {$ifdef CPU64}
+  {$ifndef CPUARM}
   {$define DOPATCHDISPINVOKE}
   // we NEED our patched DispInvoke to circumvent some Delphi bugs on Win64
+  {$endif}
 {$endif}
 {$ifdef DELPHI6OROLDER}
   {$define DOPATCHDISPINVOKE}
@@ -51444,8 +51455,16 @@ begin
 end;
 
 procedure TDynArray.Init(aTypeInfo: pointer; var aValue; aCountPointer: PInteger);
+{$IFNDEF FPC}
+var LPTypeData: PTypeData;
+    LPTypeInfo: PPTypeInfo;
+    help: Pointer;
+{$ENDIF}
 begin
   fValue := @aValue;
+  {$IFNDEF FPC}
+
+  {$ENDIF}
   fTypeInfo := aTypeInfo;
   if PTypeKind(aTypeInfo)^<>tkDynArray then // inlined GetTypeInfo()
     raise ESynException.CreateUTF8('TDynArray.Init: % is %, expected tkDynArray',
@@ -51456,6 +51475,17 @@ begin
   inc(PByte(aTypeInfo),PTypeInfo(aTypeInfo)^.NameLen);
   {$endif}
   fElemSize := PTypeInfo(aTypeInfo)^.elSize {$ifdef FPC}and $7FFFFFFF{$endif};
+
+  {$IFDEF DELPHIARM64}
+  LPTypeData:= GetTypeData(aTypeInfo);
+  LPTypeInfo:= LPTypeData.elType;
+  if LPTypeInfo <> nil then
+     begin
+     LPTypeData:= GetTypeData(LPTypeInfo^);
+     LPTypeInfo:= LPTypeData.elType;
+     end;
+  fElemType := LPTypeInfo; // LPTypeData.DynArrElType;
+  {$ELSE}
   fElemType := PTypeInfo(aTypeInfo)^.elType;
   if fElemType<>nil then begin // inlined DeRef()
     {$ifndef HASDIRECTTYPEINFO}
@@ -51470,6 +51500,7 @@ begin
       fElemType := nil; // as with Delphi
     {$endif FPC}
   end;
+  {$ENDIF}
   {$ifdef DYNARRAYELEMTYPE2} // disabled not to break backward compatibility
   fElemType2 := PTypeInfo(aTypeInfo)^.elType2;
   {$endif}
@@ -61152,7 +61183,7 @@ begin
   SetPointer(Data,DataLen);
 end;
 
-function TSynMemoryStream.Write(const Buffer; Count: Integer): Longint;
+function TSynMemoryStream.Write(const Buffer; Count: Longint): Longint;
 begin
   {$ifdef FPC}
   result := 0; // makes FPC compiler happy
@@ -62500,7 +62531,7 @@ begin
   fDataString := aString;
 end;
 
-function TRawByteStringStream.Read(var Buffer; Count: Integer): Longint;
+function TRawByteStringStream.Read(var Buffer; Count: Longint): Longint;
 begin
   if Count<=0 then
     Result := 0 else begin
@@ -62512,7 +62543,7 @@ begin
   end;
 end;
 
-function TRawByteStringStream.Seek(Offset: Integer; Origin: Word): Longint;
+function TRawByteStringStream.Seek(Offset: Longint; Origin: Word): Longint;
 begin
   case Origin of
     soFromBeginning: fPosition := Offset;
@@ -62526,14 +62557,14 @@ begin
   result := fPosition;
 end;
 
-procedure TRawByteStringStream.SetSize(NewSize: Integer);
+procedure TRawByteStringStream.SetSize(NewSize: Longint);
 begin
   SetLength(fDataString, NewSize);
   if fPosition>NewSize then
     fPosition := NewSize;
 end;
 
-function TRawByteStringStream.Write(const Buffer; Count: Integer): Longint;
+function TRawByteStringStream.Write(const Buffer; Count: Longint): Longint;
 begin
   if Count<=0 then
     Result := 0 else begin
@@ -63165,6 +63196,12 @@ end;
     System.FillChar(Dest, count, Chr(Value));
   end;
   {$endif CPUARM}
+  {$ifdef CPUARM64}
+  procedure __SystemMove(const Source; var Dest; Count: PtrInt);
+  begin
+    System.Move(Source, Dest, Count);
+  end;
+  {$endif CPUARM64}
 {$endif FPC}
 
 procedure InitFunctionsRedirection;
@@ -63198,7 +63235,11 @@ begin
   crc32c := @crc32cfast; // now to circumvent Internal Error C11715 for Delphi 5
   crc32cBy4 := @crc32cBy4fast;
   {$ifndef CPUX64}
+  {$ifdef CPUARM64}
+  MoveFast := __SystemMove;
+  {$else}
   MoveFast := @System.Move;
+  {$endif CPUARM64}
   {$endif CPUX64}
   {$ifdef FPC}
   {$ifdef CPUX64}

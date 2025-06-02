@@ -468,17 +468,27 @@
     {$define EXTENDEDTOSHORT_USESTR} // FloatToText() much slower in x64 mode
     {$define DOUBLETOSHORT_USEGRISU} // fast double to text
   {$else CPUX64}
-    {$IFDEF CPUX86}
+    {$ifdef CPUX86}
       {$define CPU32} // Delphi compiler for 32 bit CPU
       {$define CPU32DELPHI}
       {$undef CPU64}
       {$define CPUX86} // for compatibility with older versions of Delphi
       {$define CPUX86NOTPIC} // use "absolute" instead of local register
       {$define TSYNEXTENDED80} // only 32-bit has a true x87 extended type
-    {$ELSE}
+    {$else}
       {$define PUREPASCAL}
-    {$ENDIF}
+    {$endif}
   {$endif CPUX64}
+  {$ifdef CPU64BITS} // Gilt auch für ARM64
+    {$define CPU64} // Delphi compiler for 64 bit CPU
+    {$define CPU64DELPHI}
+    {$undef CPU32}
+    {$define LONGINT8BYTE}
+  {$endif}
+  {$ifdef CPUARM64} // Nur on ARM64 getestet
+      {.$undef STRCNT32}
+      {.$define FPC_REQUIRES_PROPER_ALIGNMENT}
+  {$endif}
 
   {$IFDEF CONDITIONALEXPRESSIONS}  // Delphi 6 or newer
     {$define HASINTERFACERTTI} // interface RTTI (not FPC)
@@ -601,7 +611,9 @@
       {$if CompilerVersion >= 28.0}
         {$define ISDELPHIXE7}
         {$ifdef CPU64}
-          {$define CPUX64ASM} // e.g. Delphi XE4 SSE asm is buggy :(
+          {$ifndef CPUARM}
+             {$define CPUX64ASM} // e.g. Delphi XE4 SSE asm is buggy :(
+          {$endif}
         {$endif}
       {$ifend}
       {$if CompilerVersion >= 29.0}

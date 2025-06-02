@@ -630,8 +630,13 @@ procedure movechars(s,d: PAnsiChar; t: PtrUInt); {$ifdef HASINLINE}inline;{$endi
 // this code is sometimes used rather than system.move()
 var c: AnsiChar; // better code generation on FPC
 begin
+  {$IFDEF CPU64}
   inc(PtrUInt(s), t);
   inc(PtrUInt(d), t);
+  {$ELSE}
+  inc(PtrUInt(s), t);
+  inc(PtrUInt(d), t);
+  {$ENDIF}
   PtrInt(t) := -PtrInt(t);
   repeat
     c := s[t];

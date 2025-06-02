@@ -1015,6 +1015,11 @@ type
   // VCL string=AnsiString like string(aField) but use VariantToString(aField)
   TNullableUTF8Text = type variant;
 
+{$ifdef CPUARM64} // Compiler-Error, if not in the same unit
+const
+  NullVarData: TVarData = (VType: varNull);
+{$endif}
+
 var
   /// a nullable integer value containing null
   NullableIntegerNull: TNullableInteger absolute NullVarData;
@@ -1035,7 +1040,7 @@ var
 // - FPC does not allow direct assignment to a TNullableInteger = type variant
 // variable: use this function to circumvent it
 function NullableInteger(const Value: Int64): TNullableInteger;
-  {$ifdef HASINLINE}inline;{$endif}
+  {$ifdef HASINLINE} inline; {$endif}
 
 /// same as VarIsEmpty(V) or VarIsEmpty(V), but faster
 // - FPC VarIsNull() seems buggy with varByRef variants, and does not allow
@@ -17219,6 +17224,7 @@ begin
   // GetHeapStatus is only about current thread -> use /proc/[pid]/statm
 {$else}
 begin
+  result:= false;
 {$endif ISDELPHIXE}
 {$endif BSD}
 

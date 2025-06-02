@@ -92,8 +92,13 @@ type cInt = int32;
      TOff = int32;
      PWord = ^Word;
      PDWord = ^DWord;
+     {$ifdef CPU64} // Delphi XE2 seems stable about those types (not Delphi 2009)
+     PtrInt = NativeInt;
+     PtrUInt = NativeUInt;
+     {$else}
      PtrInt = int32;
      PtrUInt = UInt32;
+     {$endif}
      Long =  Int32;
      ULONGLONG = UInt64;
      UInt = UInt32;

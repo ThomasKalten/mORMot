@@ -10526,17 +10526,17 @@ begin
   BufCount := 0;
 end;
 
-function TAESWriteStream.Read(var Buffer; Count: Integer): Longint;
+function TAESWriteStream.Read(var Buffer; Count: LongInt): Longint;
 begin
   raise ESynCrypto.CreateUTF8('Unexpected %.Read',[self]);
 end;
 
-function TAESWriteStream.Seek(Offset: Integer; Origin: Word): Longint;
+function TAESWriteStream.Seek(Offset: LongInt; Origin: Word): Longint;
 begin
   raise ESynCrypto.CreateUTF8('Unexpected %.Seek',[self]);
 end;
 
-function TAESWriteStream.Write(const Buffer; Count: Integer): Longint;
+function TAESWriteStream.Write(const Buffer; Count: LongInt): Longint;
 // most of the time, a 64KB-buffered compressor have BufCount=0
 // will crypt 'const Buffer' memory in place -> use AFTER T*Compressor
 var B: TByteArray absolute Buffer;
